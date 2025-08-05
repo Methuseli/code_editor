@@ -1,0 +1,92 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Configure kubectl
+      run: |
+        aws eks update-kubeconfig --region us-west-2 --name collaborative-editor-cluster
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Deploy to Kubernetes
+      run: |
+        # Update image tags in Kubernetes manifests
+        sed -i "s|collaborative-editor/frontend:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:${{ github.sha }}|g" k8s/frontend.yaml
+        sed -i "s|collaborative-editor/backend:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ github.sha }}|g" k8s/backend.yaml
+        
+        # Apply Kubernetes manifests
+        kubectl apply -f k8s/namespace.yaml
+        kubectl apply -f k8s/postgres.yaml
+        kubectl apply -f k8s/redis.yaml
+        kubectl apply -f k8s/backend.yaml
+        kubectl apply -f k8s/frontend.yaml
+        kubectl apply -f k8s/ingress.yaml
+        
+        # Wait for deployment to be ready
+        kubectl rollout status deployment/backend -n collaborative-editor --timeout=300s
+        kubectl rollout status deployment/frontend -n collaborative-editor --timeout=300s
+
+    - name: Run database migrations
+      run: |
+        kubectl exec -n collaborative-editor deployment/backend -- bin/collaborative_editor eval "CollaborativeEditor.Release.migrate"
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n collaborative-editor
+        kubectl get services -n collaborative-editor
+        kubectl get ingress -n collaborative-editor
+
+    - name: Smoke tests
+      run: |
+        # Wait for ingress to be ready
+        sleep 60
+        
+        # Basic health check
+        curl -f https://api.collaborative-editor.com/health || exit 1
+        curl -f https://collaborative-editor.com/ || exit 1
+
+    - name: Notify deployment
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

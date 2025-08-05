@@ -1,0 +1,44 @@
+{
+  "name": "collaborative-code-editor",
+  "version": "1.0.0",
+  "description": "Production-grade collaborative code editor",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd packages/frontend && npm run dev",
+    "dev:backend": "cd packages/backend && mix phx.server",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd packages/frontend && npm run build",
+    "build:backend": "cd packages/backend && mix compile",
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "cd packages/frontend && npm run test",
+    "test:backend": "cd packages/backend && mix test",
+    "test:e2e": "cd packages/frontend && npm run test:e2e",
+    "lint": "npm run lint:frontend && npm run lint:backend",
+    "lint:frontend": "cd packages/frontend && npm run lint",
+    "lint:backend": "cd packages/backend && mix format --check-formatted && mix credo",
+    "type-check": "cd packages/frontend && npm run type-check",
+    "docker:build": "docker build -f docker/frontend.Dockerfile -t collaborative-editor/frontend . && docker build -f docker/backend.Dockerfile -t collaborative-editor/backend .",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "k8s:deploy": "kubectl apply -f k8s/",
+    "k8s:delete": "kubectl delete -f k8s/",
+    "deploy:staging": "./scripts/deploy.sh staging",
+    "deploy:prod": "./scripts/deploy.sh production",
+    "clean": "npm run clean:frontend && npm run clean:backend",
+    "clean:frontend": "cd packages/frontend && rm -rf dist node_modules",
+    "clean:backend": "cd packages/backend && mix clean"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
